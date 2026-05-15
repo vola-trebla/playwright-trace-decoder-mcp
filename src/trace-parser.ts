@@ -12,11 +12,28 @@ import {
   FrameSnapshot,
 } from "./types.js";
 
+const CACHE_MAX = 50;
 const cache = new Map<string, { mtime: number; parsed: ParsedTrace }>();
+
+function cacheGet(key: string) {
+  const entry = cache.get(key);
+  if (!entry) return undefined;
+  cache.delete(key);
+  cache.set(key, entry);
+  return entry;
+}
+
+function cacheSet(key: string, value: { mtime: number; parsed: ParsedTrace }) {
+  if (cache.has(key)) cache.delete(key);
+  cache.set(key, value);
+  if (cache.size > CACHE_MAX) {
+    cache.delete(cache.keys().next().value!);
+  }
+}
 
 export async function parseTraceZip(zipPath: string): Promise<ParsedTrace> {
   const mtime = statSync(zipPath).mtimeMs;
-  const cached = cache.get(zipPath);
+  const cached = cacheGet(zipPath);
   if (cached && cached.mtime === mtime) return cached.parsed;
 
   const zip = new AdmZip(zipPath);
@@ -40,7 +57,7 @@ export async function parseTraceZip(zipPath: string): Promise<ParsedTrace> {
     snapshots: extractSnapshots(traceEvents),
   };
 
-  cache.set(zipPath, { mtime, parsed });
+  cacheSet(zipPath, { mtime, parsed });
   return parsed;
 }
 
