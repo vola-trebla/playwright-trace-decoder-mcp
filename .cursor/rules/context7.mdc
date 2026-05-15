@@ -1,0 +1,24 @@
+---
+description: When to use Context7 MCP for documentation lookups
+alwaysApply: true
+---
+
+## Context7 MCP
+
+Before using a new package or adopting a new practice, always query Context7 for up-to-date docs.
+
+### When to use
+
+- Adding a new `npm` dependency — check the current API before writing any code
+- Upgrading an existing package — verify breaking changes and new patterns
+- Using a framework feature you haven't touched recently (MCP SDK, Zod, etc.)
+- Unsure whether a pattern is current or outdated
+
+### How
+
+```
+mcp__claude_ai_Context7__resolve-library-id  →  mcp__claude_ai_Context7__query-docs
+```
+
+Always resolve the library ID first, then query docs with a specific question.
+Don't rely on training data alone — APIs change.
