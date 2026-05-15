@@ -21,6 +21,11 @@ const paginatedTraceInputSchema = traceInputSchema.extend({
   offset: z.number().int().min(0).default(0).describe("Number of items to skip"),
 });
 
+function errorResponse(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  return { content: [{ type: "text" as const, text: `Error: ${message}` }] };
+}
+
 server.registerTool(
   "get_test_metadata",
   {
@@ -28,10 +33,14 @@ server.registerTool(
     inputSchema: traceInputSchema,
   },
   async ({ trace_path }) => {
-    const trace = await parseTraceZip(trace_path);
-    return {
-      content: [{ type: "text", text: JSON.stringify(trace.metadata, null, 2) }],
-    };
+    try {
+      const trace = await parseTraceZip(trace_path);
+      return {
+        content: [{ type: "text", text: JSON.stringify(trace.metadata, null, 2) }],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
   }
 );
 
@@ -42,25 +51,29 @@ server.registerTool(
     inputSchema: traceInputSchema,
   },
   async ({ trace_path }) => {
-    const trace = await parseTraceZip(trace_path);
-    const failedAction = trace.actions.find((a) => a.error);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            {
-              metadata: trace.metadata,
-              failed_action: failedAction ?? null,
-              total_actions: trace.actions.length,
-              has_errors: !!failedAction,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    try {
+      const trace = await parseTraceZip(trace_path);
+      const failedAction = trace.actions.find((a) => a.error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                metadata: trace.metadata,
+                failed_action: failedAction ?? null,
+                total_actions: trace.actions.length,
+                has_errors: !!failedAction,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
   }
 );
 
@@ -72,26 +85,30 @@ server.registerTool(
     inputSchema: paginatedTraceInputSchema,
   },
   async ({ trace_path, limit, offset }) => {
-    const trace = await parseTraceZip(trace_path);
-    const page = trace.actions.slice(offset, offset + limit);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            {
-              total: trace.actions.length,
-              offset,
-              limit,
-              has_more: offset + limit < trace.actions.length,
-              actions: page,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    try {
+      const trace = await parseTraceZip(trace_path);
+      const page = trace.actions.slice(offset, offset + limit);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                total: trace.actions.length,
+                offset,
+                limit,
+                has_more: offset + limit < trace.actions.length,
+                actions: page,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
   }
 );
 
@@ -103,30 +120,34 @@ server.registerTool(
     inputSchema: paginatedTraceInputSchema,
   },
   async ({ trace_path, limit, offset }) => {
-    const trace = await parseTraceZip(trace_path);
-    const STATIC_MIME = ["text/css", "text/javascript", "font/", "image/", "video/", "audio/"];
-    const errors = trace.network.filter(
-      (n) => n.status >= 400 && !STATIC_MIME.some((m) => n.mimeType.startsWith(m))
-    );
-    const page = errors.slice(offset, offset + limit);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            {
-              total: errors.length,
-              offset,
-              limit,
-              has_more: offset + limit < errors.length,
-              error_requests: page,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    try {
+      const trace = await parseTraceZip(trace_path);
+      const STATIC_MIME = ["text/css", "text/javascript", "font/", "image/", "video/", "audio/"];
+      const errors = trace.network.filter(
+        (n) => n.status >= 400 && !STATIC_MIME.some((m) => n.mimeType.startsWith(m))
+      );
+      const page = errors.slice(offset, offset + limit);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                total: errors.length,
+                offset,
+                limit,
+                has_more: offset + limit < errors.length,
+                error_requests: page,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
   }
 );
 
@@ -137,32 +158,36 @@ server.registerTool(
     inputSchema: paginatedTraceInputSchema,
   },
   async ({ trace_path, limit, offset }) => {
-    const trace = await parseTraceZip(trace_path);
-    const errors = trace.console.filter((c) => c.type === "error");
-    const warnings = trace.console.filter((c) => c.type === "warning");
-    const pagedErrors = errors.slice(offset, offset + limit);
-    const pagedWarnings = warnings.slice(offset, offset + limit);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            {
-              total_errors: errors.length,
-              total_warnings: warnings.length,
-              total_messages: trace.console.length,
-              offset,
-              limit,
-              has_more: offset + limit < Math.max(errors.length, warnings.length),
-              errors: pagedErrors,
-              warnings: pagedWarnings,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    try {
+      const trace = await parseTraceZip(trace_path);
+      const errors = trace.console.filter((c) => c.type === "error");
+      const warnings = trace.console.filter((c) => c.type === "warning");
+      const pagedErrors = errors.slice(offset, offset + limit);
+      const pagedWarnings = warnings.slice(offset, offset + limit);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                total_errors: errors.length,
+                total_warnings: warnings.length,
+                total_messages: trace.console.length,
+                offset,
+                limit,
+                has_more: offset + limit < Math.max(errors.length, warnings.length),
+                errors: pagedErrors,
+                warnings: pagedWarnings,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
   }
 );
 
@@ -185,54 +210,58 @@ server.registerTool(
     }),
   },
   async ({ trace_path, action_index }) => {
-    const trace = await parseTraceZip(trace_path);
+    try {
+      const trace = await parseTraceZip(trace_path);
 
-    if (trace.snapshots.length === 0) {
+      if (trace.snapshots.length === 0) {
+        return {
+          content: [{ type: "text", text: "No frame snapshots found in this trace." }],
+        };
+      }
+
+      let snapshot = trace.snapshots[trace.snapshots.length - 1];
+
+      if (action_index !== undefined) {
+        const action = trace.actions[action_index];
+        if (action) {
+          const callId = (action.metadata as Record<string, { callId?: string }>)?.before?.callId;
+          const match = trace.snapshots.find(
+            (s) => s.callId === callId && s.snapshotName.startsWith("after@")
+          );
+          if (match) snapshot = match;
+        }
+      } else {
+        const failed = trace.actions.find((a) => a.error);
+        if (failed) {
+          const callId = (failed.metadata as Record<string, { callId?: string }>)?.before?.callId;
+          const match = trace.snapshots.find(
+            (s) => s.callId === callId && s.snapshotName.startsWith("before@")
+          );
+          if (match) snapshot = match;
+        }
+      }
+
+      const yaml = snapshotToAriaYaml(snapshot.html);
       return {
-        content: [{ type: "text", text: "No frame snapshots found in this trace." }],
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                snapshot_name: snapshot.snapshotName,
+                frame_url: snapshot.frameUrl,
+                timestamp: snapshot.timestamp,
+                aria_tree: yaml,
+              },
+              null,
+              2
+            ),
+          },
+        ],
       };
+    } catch (err) {
+      return errorResponse(err);
     }
-
-    let snapshot = trace.snapshots[trace.snapshots.length - 1];
-
-    if (action_index !== undefined) {
-      const action = trace.actions[action_index];
-      if (action) {
-        const callId = (action.metadata as Record<string, { callId?: string }>)?.before?.callId;
-        const match = trace.snapshots.find(
-          (s) => s.callId === callId && s.snapshotName.startsWith("after@")
-        );
-        if (match) snapshot = match;
-      }
-    } else {
-      const failed = trace.actions.find((a) => a.error);
-      if (failed) {
-        const callId = (failed.metadata as Record<string, { callId?: string }>)?.before?.callId;
-        const match = trace.snapshots.find(
-          (s) => s.callId === callId && s.snapshotName.startsWith("before@")
-        );
-        if (match) snapshot = match;
-      }
-    }
-
-    const yaml = snapshotToAriaYaml(snapshot.html);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            {
-              snapshot_name: snapshot.snapshotName,
-              frame_url: snapshot.frameUrl,
-              timestamp: snapshot.timestamp,
-              aria_tree: yaml,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
   }
 );
 
@@ -243,31 +272,37 @@ server.registerTool(
     inputSchema: traceInputSchema,
   },
   async ({ trace_path }) => {
-    const trace = await parseTraceZip(trace_path);
-    const failedAction = trace.actions.find((a) => a.error);
-    if (!failedAction) {
+    try {
+      const trace = await parseTraceZip(trace_path);
+      const failedAction = trace.actions.find((a) => a.error);
+      if (!failedAction) {
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ message: "No failure found in trace" }) },
+          ],
+        };
+      }
       return {
-        content: [{ type: "text", text: JSON.stringify({ message: "No failure found in trace" }) }],
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                failed_action: failedAction.type,
+                locator: failedAction.locator,
+                error: failedAction.error,
+                time: failedAction.startTime,
+                raw: failedAction.metadata,
+              },
+              null,
+              2
+            ),
+          },
+        ],
       };
+    } catch (err) {
+      return errorResponse(err);
     }
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            {
-              failed_action: failedAction.type,
-              locator: failedAction.locator,
-              error: failedAction.error,
-              time: failedAction.startTime,
-              raw: failedAction.metadata,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
   }
 );
 
@@ -280,20 +315,24 @@ server.registerTool(
     inputSchema: traceInputSchema,
   },
   async ({ trace_path }) => {
-    const trace = await parseTraceZip(trace_path);
-    const results = analyzeRaceConditions(trace);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            { total_flagged: results.length, race_conditions: results },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    try {
+      const trace = await parseTraceZip(trace_path);
+      const results = analyzeRaceConditions(trace);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              { total_flagged: results.length, race_conditions: results },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
   }
 );
 
@@ -312,11 +351,15 @@ server.registerTool(
     }),
   },
   async ({ trace_path, action_index }) => {
-    const trace = await parseTraceZip(trace_path);
-    const delta = getDomMutationDelta(trace, action_index);
-    return {
-      content: [{ type: "text", text: JSON.stringify(delta, null, 2) }],
-    };
+    try {
+      const trace = await parseTraceZip(trace_path);
+      const delta = getDomMutationDelta(trace, action_index);
+      return {
+        content: [{ type: "text", text: JSON.stringify(delta, null, 2) }],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
   }
 );
 
@@ -337,11 +380,15 @@ server.registerTool(
     }),
   },
   async ({ trace_path, lookback_ms }) => {
-    const trace = await parseTraceZip(trace_path);
-    const chain = getCausalChain(trace, lookback_ms);
-    return {
-      content: [{ type: "text", text: JSON.stringify(chain, null, 2) }],
-    };
+    try {
+      const trace = await parseTraceZip(trace_path);
+      const chain = getCausalChain(trace, lookback_ms);
+      return {
+        content: [{ type: "text", text: JSON.stringify(chain, null, 2) }],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
   }
 );
 
@@ -355,11 +402,15 @@ server.registerTool(
     inputSchema: traceInputSchema,
   },
   async ({ trace_path }) => {
-    const trace = await parseTraceZip(trace_path);
-    const sig = generateErrorSignature(trace);
-    return {
-      content: [{ type: "text", text: JSON.stringify(sig, null, 2) }],
-    };
+    try {
+      const trace = await parseTraceZip(trace_path);
+      const sig = generateErrorSignature(trace);
+      return {
+        content: [{ type: "text", text: JSON.stringify(sig, null, 2) }],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
   }
 );
 
@@ -376,14 +427,18 @@ server.registerTool(
     }),
   },
   async ({ passing_trace_path, failing_trace_path }) => {
-    const [passing, failing] = await Promise.all([
-      parseTraceZip(passing_trace_path),
-      parseTraceZip(failing_trace_path),
-    ]);
-    const diff = compareTraces(passing, failing);
-    return {
-      content: [{ type: "text", text: JSON.stringify(diff, null, 2) }],
-    };
+    try {
+      const [passing, failing] = await Promise.all([
+        parseTraceZip(passing_trace_path),
+        parseTraceZip(failing_trace_path),
+      ]);
+      const diff = compareTraces(passing, failing);
+      return {
+        content: [{ type: "text", text: JSON.stringify(diff, null, 2) }],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
   }
 );
 
