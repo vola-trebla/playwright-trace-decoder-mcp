@@ -48,8 +48,8 @@ function extractActions(events: TraceEvent[]): TraceAction[] {
       locator: params.selector
         ? String(params.selector)
         : params.locator
-        ? String(params.locator)
-        : undefined,
+          ? String(params.locator)
+          : undefined,
       error: error?.message ? String(error.message) : undefined,
       metadata: { before, after },
     };
