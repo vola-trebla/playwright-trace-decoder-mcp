@@ -1,34 +1,74 @@
 import AdmZip from "adm-zip";
-import { ParsedTrace, TraceAction, NetworkEntry, ConsoleMessage, TraceEvent } from "./types.js";
+import { statSync } from "fs";
+import { createInterface } from "readline";
+import { Readable } from "stream";
+import {
+  ParsedTrace,
+  TraceAction,
+  TraceMetadata,
+  NetworkEntry,
+  ConsoleMessage,
+  TraceEvent,
+} from "./types.js";
 
-export function parseTraceZip(zipPath: string): ParsedTrace {
+const cache = new Map<string, { mtime: number; parsed: ParsedTrace }>();
+
+export async function parseTraceZip(zipPath: string): Promise<ParsedTrace> {
+  const mtime = statSync(zipPath).mtimeMs;
+  const cached = cache.get(zipPath);
+  if (cached && cached.mtime === mtime) return cached.parsed;
+
   const zip = new AdmZip(zipPath);
-  const events: TraceEvent[] = [];
+  const traceEvents: TraceEvent[] = [];
+  const networkEvents: TraceEvent[] = [];
 
   for (const entry of zip.getEntries()) {
-    if (!entry.entryName.endsWith(".trace")) continue;
-    const content = entry.getData().toString("utf8");
-    for (const line of content.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        events.push(JSON.parse(trimmed) as TraceEvent);
-      } catch {
-        // skip malformed lines
-      }
+    if (entry.entryName.endsWith(".trace")) {
+      await parseJsonlBuffer(entry.getData(), traceEvents);
+    } else if (entry.entryName.endsWith(".network")) {
+      await parseJsonlBuffer(entry.getData(), networkEvents);
     }
   }
 
+  const parsed: ParsedTrace = {
+    metadata: extractMetadata(traceEvents),
+    events: traceEvents,
+    actions: extractActions(traceEvents),
+    network: extractNetwork(networkEvents),
+    console: extractConsole(traceEvents),
+  };
+
+  cache.set(zipPath, { mtime, parsed });
+  return parsed;
+}
+
+async function parseJsonlBuffer(buffer: Buffer, target: TraceEvent[]): Promise<void> {
+  const rl = createInterface({ input: Readable.from(buffer), crlfDelay: Infinity });
+  for await (const line of rl) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      target.push(JSON.parse(trimmed) as TraceEvent);
+    } catch {
+      // skip malformed lines
+    }
+  }
+}
+
+function extractMetadata(events: TraceEvent[]): TraceMetadata {
+  const ctx = events.find((e) => e.type === "context-options");
+  if (!ctx) return {};
+  const options = ctx.options as Record<string, unknown> | undefined;
   return {
-    events,
-    actions: extractActions(events),
-    network: extractNetwork(events),
-    console: extractConsole(events),
+    browser: ctx.browserName ? String(ctx.browserName) : undefined,
+    platform: ctx.platform ? String(ctx.platform) : undefined,
+    viewport: options?.viewport as { width: number; height: number } | undefined,
+    testTitle: ctx.title ? String(ctx.title) : undefined,
+    wallTime: ctx.wallTime ? Number(ctx.wallTime) : undefined,
   };
 }
 
 function extractActions(events: TraceEvent[]): TraceAction[] {
-  const befores = events.filter((e) => e.type === "before");
   const afterMap = new Map<string, TraceEvent>();
   for (const e of events) {
     if (e.type === "after" && e.callId) {
@@ -36,71 +76,64 @@ function extractActions(events: TraceEvent[]): TraceAction[] {
     }
   }
 
-  return befores.map((before) => {
-    const after = afterMap.get(String(before.callId));
-    const params = (before.params ?? {}) as Record<string, unknown>;
-    const error = after?.error as Record<string, unknown> | undefined;
-
-    return {
-      type: String(before.apiName ?? before.callId ?? "unknown"),
-      startTime: Number(before.startTime ?? 0),
-      endTime: Number(after?.endTime ?? 0),
-      locator: params.selector
-        ? String(params.selector)
-        : params.locator
-          ? String(params.locator)
-          : undefined,
-      error: error?.message ? String(error.message) : undefined,
-      metadata: { before, after },
-    };
-  });
+  return events
+    .filter((e) => e.type === "before")
+    .map((before) => {
+      const after = afterMap.get(String(before.callId));
+      const params = (before.params ?? {}) as Record<string, unknown>;
+      const error = after?.error as Record<string, unknown> | undefined;
+      return {
+        type: String(before.apiName ?? before.callId ?? "unknown"),
+        startTime: Number(before.startTime ?? 0),
+        endTime: Number(after?.endTime ?? 0),
+        locator: params.selector
+          ? String(params.selector)
+          : params.locator
+            ? String(params.locator)
+            : undefined,
+        error: error?.message ? String(error.message) : undefined,
+        metadata: { before, after },
+      };
+    });
 }
 
-function extractNetwork(events: TraceEvent[]): NetworkEntry[] {
-  const browserEvents = events.filter((e) => e.type === "event");
-
-  // Build request map: guid -> initializer data
-  const requestMap = new Map<string, Record<string, unknown>>();
-  for (const e of browserEvents) {
-    if (e.class === "Request" && e.method === "__create__") {
-      const params = e.params as Record<string, unknown>;
-      const init = params.initializer as Record<string, unknown>;
-      const guid = String(params.guid);
-      requestMap.set(guid, init);
-    }
-  }
-
-  // Collect responses and join with requests
-  const entries: NetworkEntry[] = [];
-  for (const e of browserEvents) {
-    if (e.class !== "Response" || e.method !== "__create__") continue;
-    const params = e.params as Record<string, unknown>;
-    const init = params.initializer as Record<string, unknown>;
-    const requestRef = init.request as Record<string, unknown>;
-    const req = requestMap.get(String(requestRef?.guid));
-
-    entries.push({
-      url: String(init.url ?? ""),
-      method: req ? String(req.method ?? "GET") : "GET",
-      status: Number(init.status ?? 0),
-      startTime: Number(e.time ?? 0),
-      duration: Number((init.timing as Record<string, unknown>)?.responseStart ?? 0),
-      resourceType: req ? String(req.resourceType ?? "other") : "other",
+function extractNetwork(networkEvents: TraceEvent[]): NetworkEntry[] {
+  return networkEvents
+    .filter((e) => e.type === "resource-snapshot")
+    .map((e) => {
+      const snap = e.snapshot as Record<string, unknown>;
+      const req = snap.request as Record<string, unknown>;
+      const resp = snap.response as Record<string, unknown>;
+      const content = resp?.content as Record<string, unknown> | undefined;
+      return {
+        url: String(req?.url ?? ""),
+        method: String(req?.method ?? "GET"),
+        status: Number(resp?.status ?? 0),
+        startTime: Number(snap._monotonicTime ?? 0),
+        duration: Number(snap.time ?? 0),
+        mimeType: String(content?.mimeType ?? "other"),
+      };
     });
-  }
-
-  return entries;
 }
 
 function extractConsole(events: TraceEvent[]): ConsoleMessage[] {
+  const objectMap = new Map<string, TraceEvent>();
+  for (const e of events) {
+    if (e.type === "object" && e.guid) {
+      objectMap.set(String(e.guid), e);
+    }
+  }
+
   return events
     .filter((e) => e.type === "event" && e.method === "console")
     .map((e) => {
       const params = e.params as Record<string, unknown>;
-      const msg = params.message as Record<string, unknown> | undefined;
+      const msgRef = params.message as Record<string, unknown> | undefined;
+      const msgObj = objectMap.get(String(msgRef?.guid ?? ""));
+      const init = msgObj?.initializer as Record<string, unknown> | undefined;
       return {
-        type: (msg?.type as ConsoleMessage["type"]) ?? "log",
-        text: msg?.text ? String(msg.text) : String(params.text ?? ""),
+        type: (init?.type as ConsoleMessage["type"]) ?? "log",
+        text: init?.text ? String(init.text) : "",
         time: Number(e.time ?? 0),
       };
     });
