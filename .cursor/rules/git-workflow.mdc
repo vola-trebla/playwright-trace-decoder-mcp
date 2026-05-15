@@ -1,0 +1,26 @@
+---
+description: Git workflow for all changes in this repo
+alwaysApply: true
+---
+
+## Git Workflow
+
+Every change goes through a branch → PR cycle. Never commit directly to `main`.
+
+### Steps
+
+1. **Branch** — create a branch from `main` with a short descriptive name (`feat/...`, `fix/...`, `chore/...`)
+2. **Commit** — atomic commits with clear messages
+3. **Push** — push the branch to origin
+4. **PR** — open a pull request via `gh pr create`
+5. **Wait** — user reviews and merges
+
+### After merge
+
+When the user says **"OK жаба"** — pull the latest `main`:
+
+```bash
+git checkout main && git pull
+```
+
+Then continue from a fresh branch.
