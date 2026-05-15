@@ -1,3 +1,11 @@
+export interface TraceMetadata {
+  browser?: string;
+  platform?: string;
+  viewport?: { width: number; height: number };
+  testTitle?: string;
+  wallTime?: number;
+}
+
 export interface TraceAction {
   type: string;
   startTime: number;
@@ -13,7 +21,7 @@ export interface NetworkEntry {
   status: number;
   startTime: number;
   duration: number;
-  resourceType: string;
+  mimeType: string;
 }
 
 export interface ConsoleMessage {
@@ -29,6 +37,7 @@ export interface TraceEvent {
 }
 
 export interface ParsedTrace {
+  metadata: TraceMetadata;
   events: TraceEvent[];
   actions: TraceAction[];
   network: NetworkEntry[];

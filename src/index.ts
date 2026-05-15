@@ -19,8 +19,8 @@ server.registerTool(
     description: "Returns the failing action and top-level error message from a Playwright trace",
     inputSchema: traceInputSchema,
   },
-  ({ trace_path }) => {
-    const trace = parseTraceZip(trace_path);
+  async ({ trace_path }) => {
+    const trace = await parseTraceZip(trace_path);
     const failedAction = trace.actions.find((a) => a.error);
     return {
       content: [
@@ -28,6 +28,7 @@ server.registerTool(
           type: "text",
           text: JSON.stringify(
             {
+              metadata: trace.metadata,
               failed_action: failedAction ?? null,
               total_actions: trace.actions.length,
               has_errors: !!failedAction,
@@ -47,8 +48,8 @@ server.registerTool(
     description: "Returns a structured timeline of all actions with locators and timings",
     inputSchema: traceInputSchema,
   },
-  ({ trace_path }) => {
-    const trace = parseTraceZip(trace_path);
+  async ({ trace_path }) => {
+    const trace = await parseTraceZip(trace_path);
     return {
       content: [
         {
@@ -66,11 +67,11 @@ server.registerTool(
     description: "Returns only 4xx/5xx network responses, stripping static assets",
     inputSchema: traceInputSchema,
   },
-  ({ trace_path }) => {
-    const trace = parseTraceZip(trace_path);
-    const STATIC_TYPES = ["image", "stylesheet", "font", "media"];
+  async ({ trace_path }) => {
+    const trace = await parseTraceZip(trace_path);
+    const STATIC_MIME = ["text/css", "text/javascript", "font/", "image/", "video/", "audio/"];
     const errors = trace.network.filter(
-      (n) => n.status >= 400 && !STATIC_TYPES.includes(n.resourceType)
+      (n) => n.status >= 400 && !STATIC_MIME.some((m) => n.mimeType.startsWith(m))
     );
     return {
       content: [
@@ -89,8 +90,8 @@ server.registerTool(
     description: "Returns JS exceptions and errors separated from assertion errors",
     inputSchema: traceInputSchema,
   },
-  ({ trace_path }) => {
-    const trace = parseTraceZip(trace_path);
+  async ({ trace_path }) => {
+    const trace = await parseTraceZip(trace_path);
     const errors = trace.console.filter((c) => c.type === "error");
     const warnings = trace.console.filter((c) => c.type === "warning");
     return {
@@ -110,8 +111,8 @@ server.registerTool(
     description: "Returns DOM attributes of the failing element at the moment of failure",
     inputSchema: traceInputSchema,
   },
-  ({ trace_path }) => {
-    const trace = parseTraceZip(trace_path);
+  async ({ trace_path }) => {
+    const trace = await parseTraceZip(trace_path);
     const failedAction = trace.actions.find((a) => a.error);
     if (!failedAction) {
       return {
