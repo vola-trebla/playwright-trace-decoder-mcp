@@ -1,14 +1,14 @@
-# playwright-trace-decoder-mcp
+# 🎭 playwright-trace-decoder-mcp
 
 An MCP server that unpacks and structures Playwright `trace.zip` archives so AI agents can perform root-cause analysis on CI failures — without drowning in raw JSON or blowing up the context window.
 
-## The Problem
+## 🤔 The Problem
 
 When a Playwright test fails in CI, you get a `trace.zip`. It's a binary blob. LLMs can't read it natively, and dumping the raw contents exceeds the context window. Engineers end up copying log snippets into ChatGPT manually like it's 2022.
 
 This MCP server solves that: 12 focused tools that expose exactly the signal an agent needs to diagnose a failure, with pagination and ARIA compression to keep token costs low.
 
-## Tools
+## 🛠️ Tools
 
 Tools are grouped by how an agent should sequence them when diagnosing a failure.
 
@@ -41,7 +41,7 @@ All list-returning tools support `limit` (1–500, default 50) and `offset` pagi
 | `generate_error_signature` | `trace_path` | Stable 12-char SHA-1 hash of the normalized error — use to group duplicate failures across parallel CI runs |
 | `compare_traces` | `passing_trace_path`, `failing_trace_path` | Action-sequence alignment between a passing and failing run: first structural divergence, timing anomalies (>500 ms), network delta |
 
-## Suggested agent workflow
+## 💬 Suggested agent workflow
 
 ```
 get_trace_summary          ← what failed?
@@ -52,7 +52,7 @@ analyze_race_conditions      ← was a network request still pending?
 compare_traces               ← flaky? compare to a passing run
 ```
 
-## Setup
+## 🚀 Setup
 
 ### Build from source
 
@@ -98,7 +98,7 @@ claude mcp add playwright-trace-decoder \
   node /absolute/path/to/playwright-trace-decoder-mcp/dist/index.js
 ```
 
-## Example usage
+## 💬 Example usage
 
 Once connected, ask your agent:
 
@@ -112,7 +112,7 @@ To diagnose flakiness:
 
 The agent uses `compare_traces` to align both runs and surfaces the first timing or structural divergence.
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 trace.zip
@@ -124,14 +124,14 @@ The parser streams each file line-by-line (no full-buffer split) and caches resu
 
 Frame snapshots store the DOM as nested arrays (`["TAG", {attrs}, ...children]`). The ARIA translator walks this tree and outputs compact YAML, reducing token cost by ~90% vs raw HTML.
 
-## Stack
+## 🏗️ Stack
 
 - [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk) — MCP server runtime
 - [`adm-zip`](https://github.com/cthackers/adm-zip) — zip extraction
 - [`zod`](https://zod.dev) v4 — input schema validation
 - TypeScript, ESLint, Prettier, Husky, GitHub Actions CI
 
-## Scripts
+## 📋 Scripts
 
 ```bash
 npm run build        # compile TypeScript → dist/
@@ -140,6 +140,6 @@ npm run format       # Prettier --write
 npm run format:check # Prettier check (used in CI)
 ```
 
-## License
+## 📄 License
 
 MIT
