@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 import { parseTraceZip } from "./trace-parser.js";
+import { snapshotToAriaYaml } from "./aria-translator.js";
 
 const server = new McpServer({
   name: "playwright-trace-decoder",
@@ -153,6 +154,76 @@ server.registerTool(
               has_more: offset + limit < Math.max(errors.length, warnings.length),
               errors: pagedErrors,
               warnings: pagedWarnings,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+);
+
+server.registerTool(
+  "get_aria_accessibility_tree",
+  {
+    description:
+      "Returns the ARIA accessibility tree (YAML) for a frame snapshot in the trace. " +
+      "Reduces DOM token cost by ~90% vs raw HTML. Use action_index to target a specific action — " +
+      "defaults to the failed action, or the last snapshot if no failure.",
+    inputSchema: traceInputSchema.extend({
+      action_index: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(
+          "Index of the action whose snapshot to use (0-based). Defaults to failed action."
+        ),
+    }),
+  },
+  async ({ trace_path, action_index }) => {
+    const trace = await parseTraceZip(trace_path);
+
+    if (trace.snapshots.length === 0) {
+      return {
+        content: [{ type: "text", text: "No frame snapshots found in this trace." }],
+      };
+    }
+
+    let snapshot = trace.snapshots[trace.snapshots.length - 1];
+
+    if (action_index !== undefined) {
+      const action = trace.actions[action_index];
+      if (action) {
+        const callId = (action.metadata as Record<string, { callId?: string }>)?.before?.callId;
+        const match = trace.snapshots.find(
+          (s) => s.callId === callId && s.snapshotName.startsWith("after@")
+        );
+        if (match) snapshot = match;
+      }
+    } else {
+      const failed = trace.actions.find((a) => a.error);
+      if (failed) {
+        const callId = (failed.metadata as Record<string, { callId?: string }>)?.before?.callId;
+        const match = trace.snapshots.find(
+          (s) => s.callId === callId && s.snapshotName.startsWith("before@")
+        );
+        if (match) snapshot = match;
+      }
+    }
+
+    const yaml = snapshotToAriaYaml(snapshot.html);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              snapshot_name: snapshot.snapshotName,
+              frame_url: snapshot.frameUrl,
+              timestamp: snapshot.timestamp,
+              aria_tree: yaml,
             },
             null,
             2

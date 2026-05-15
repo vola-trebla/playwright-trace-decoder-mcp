@@ -9,6 +9,7 @@ import {
   NetworkEntry,
   ConsoleMessage,
   TraceEvent,
+  FrameSnapshot,
 } from "./types.js";
 
 const cache = new Map<string, { mtime: number; parsed: ParsedTrace }>();
@@ -36,6 +37,7 @@ export async function parseTraceZip(zipPath: string): Promise<ParsedTrace> {
     actions: extractActions(traceEvents),
     network: extractNetwork(networkEvents),
     console: extractConsole(traceEvents),
+    snapshots: extractSnapshots(traceEvents),
   };
 
   cache.set(zipPath, { mtime, parsed });
@@ -112,6 +114,21 @@ function extractNetwork(networkEvents: TraceEvent[]): NetworkEntry[] {
         startTime: Number(snap._monotonicTime ?? 0),
         duration: Number(snap.time ?? 0),
         mimeType: String(content?.mimeType ?? "other"),
+      };
+    });
+}
+
+function extractSnapshots(events: TraceEvent[]): FrameSnapshot[] {
+  return events
+    .filter((e) => e.type === "frame-snapshot")
+    .map((e) => {
+      const snap = e.snapshot as Record<string, unknown>;
+      return {
+        callId: String(snap.callId ?? ""),
+        snapshotName: String(snap.snapshotName ?? ""),
+        frameUrl: String(snap.frameUrl ?? ""),
+        html: snap.html,
+        timestamp: Number(snap.timestamp ?? 0),
       };
     });
 }
