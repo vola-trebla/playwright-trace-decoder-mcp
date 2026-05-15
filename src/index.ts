@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 import { parseTraceZip } from "./trace-parser.js";
 import { snapshotToAriaYaml } from "./aria-translator.js";
+import { analyzeRaceConditions, getDomMutationDelta, getCausalChain } from "./diagnostics.js";
 
 const server = new McpServer({
   name: "playwright-trace-decoder",
@@ -265,6 +266,80 @@ server.registerTool(
           ),
         },
       ],
+    };
+  }
+);
+
+server.registerTool(
+  "analyze_race_conditions",
+  {
+    description:
+      "Detects potential race conditions by finding network requests that were still " +
+      "in-flight when a user interaction action fired. Returns flagged actions with pending requests.",
+    inputSchema: traceInputSchema,
+  },
+  async ({ trace_path }) => {
+    const trace = await parseTraceZip(trace_path);
+    const results = analyzeRaceConditions(trace);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            { total_flagged: results.length, race_conditions: results },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+);
+
+server.registerTool(
+  "get_dom_mutation_delta",
+  {
+    description:
+      "Diffs the ARIA tree before and after a specific action. Returns added and removed " +
+      "elements so the agent sees exactly what changed without comparing two full DOM dumps.",
+    inputSchema: traceInputSchema.extend({
+      action_index: z
+        .number()
+        .int()
+        .min(0)
+        .describe("Index of the action to diff (0-based, from get_action_timeline)"),
+    }),
+  },
+  async ({ trace_path, action_index }) => {
+    const trace = await parseTraceZip(trace_path);
+    const delta = getDomMutationDelta(trace, action_index);
+    return {
+      content: [{ type: "text", text: JSON.stringify(delta, null, 2) }],
+    };
+  }
+);
+
+server.registerTool(
+  "get_causal_chain_for_failure",
+  {
+    description:
+      "Walks backwards from the failed action and builds a chronological chain of " +
+      "preceding actions, network errors, and console errors. Surfaces the most likely root cause.",
+    inputSchema: traceInputSchema.extend({
+      lookback_ms: z
+        .number()
+        .int()
+        .min(100)
+        .max(30000)
+        .default(5000)
+        .describe("How far back from the failure to look, in milliseconds (default 5000)"),
+    }),
+  },
+  async ({ trace_path, lookback_ms }) => {
+    const trace = await parseTraceZip(trace_path);
+    const chain = getCausalChain(trace, lookback_ms);
+    return {
+      content: [{ type: "text", text: JSON.stringify(chain, null, 2) }],
     };
   }
 );
