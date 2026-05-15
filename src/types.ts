@@ -36,10 +36,19 @@ export interface TraceEvent {
   [key: string]: unknown;
 }
 
+export interface FrameSnapshot {
+  callId: string;
+  snapshotName: string;
+  frameUrl: string;
+  html: unknown;
+  timestamp: number;
+}
+
 export interface ParsedTrace {
   metadata: TraceMetadata;
   events: TraceEvent[];
   actions: TraceAction[];
   network: NetworkEntry[];
   console: ConsoleMessage[];
+  snapshots: FrameSnapshot[];
 }
