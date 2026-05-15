@@ -5,6 +5,7 @@ import * as z from "zod/v4";
 import { parseTraceZip } from "./trace-parser.js";
 import { snapshotToAriaYaml } from "./aria-translator.js";
 import { analyzeRaceConditions, getDomMutationDelta, getCausalChain } from "./diagnostics.js";
+import { generateErrorSignature, compareTraces } from "./cross-trace.js";
 
 const server = new McpServer({
   name: "playwright-trace-decoder",
@@ -340,6 +341,48 @@ server.registerTool(
     const chain = getCausalChain(trace, lookback_ms);
     return {
       content: [{ type: "text", text: JSON.stringify(chain, null, 2) }],
+    };
+  }
+);
+
+server.registerTool(
+  "generate_error_signature",
+  {
+    description:
+      "Generates a stable 12-char hash signature for a test failure by normalizing the " +
+      "error message (stripping paths, numbers, UUIDs). Use to group duplicate failures " +
+      "across parallel CI runs without reading each trace manually.",
+    inputSchema: traceInputSchema,
+  },
+  async ({ trace_path }) => {
+    const trace = await parseTraceZip(trace_path);
+    const sig = generateErrorSignature(trace);
+    return {
+      content: [{ type: "text", text: JSON.stringify(sig, null, 2) }],
+    };
+  }
+);
+
+server.registerTool(
+  "compare_traces",
+  {
+    description:
+      "Compares a passing and a failing trace of the same test. Aligns actions by sequence, " +
+      "finds the first timing or structural divergence, and summarises network differences. " +
+      "Use to diagnose flakiness — what was different in the run that failed.",
+    inputSchema: z.object({
+      passing_trace_path: z.string().describe("Absolute path to the passing trace.zip"),
+      failing_trace_path: z.string().describe("Absolute path to the failing trace.zip"),
+    }),
+  },
+  async ({ passing_trace_path, failing_trace_path }) => {
+    const [passing, failing] = await Promise.all([
+      parseTraceZip(passing_trace_path),
+      parseTraceZip(failing_trace_path),
+    ]);
+    const diff = compareTraces(passing, failing);
+    return {
+      content: [{ type: "text", text: JSON.stringify(diff, null, 2) }],
     };
   }
 );
