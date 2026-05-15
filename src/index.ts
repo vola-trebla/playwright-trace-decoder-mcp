@@ -2,7 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
-import { parseTraceZip, extractScreenshots } from "./trace-parser.js";
+import { parseTraceZip, extractScreenshots, resolveTracePath } from "./trace-parser.js";
 import { snapshotToAriaYaml } from "./aria-translator.js";
 import { analyzeRaceConditions, getDomMutationDelta, getCausalChain } from "./diagnostics.js";
 import { generateErrorSignature, compareTraces } from "./cross-trace.js";
@@ -13,7 +13,9 @@ const server = new McpServer({
 });
 
 const traceInputSchema = z.object({
-  trace_path: z.string().describe("Absolute path to trace.zip"),
+  trace_path: z
+    .string()
+    .describe("Absolute path to trace.zip, or a URL (https://) to download it from"),
 });
 
 const paginatedTraceInputSchema = traceInputSchema.extend({
@@ -34,7 +36,7 @@ server.registerTool(
   },
   async ({ trace_path }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
       return {
         content: [{ type: "text", text: JSON.stringify(trace.metadata, null, 2) }],
       };
@@ -52,7 +54,7 @@ server.registerTool(
   },
   async ({ trace_path }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
       const failedAction = trace.actions.find((a) => a.error);
       return {
         content: [
@@ -86,7 +88,7 @@ server.registerTool(
   },
   async ({ trace_path, limit, offset }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
       const page = trace.actions.slice(offset, offset + limit);
       return {
         content: [
@@ -121,7 +123,7 @@ server.registerTool(
   },
   async ({ trace_path, limit, offset }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
       const STATIC_MIME = ["text/css", "text/javascript", "font/", "image/", "video/", "audio/"];
       const errors = trace.network.filter(
         (n) => n.status >= 400 && !STATIC_MIME.some((m) => n.mimeType.startsWith(m))
@@ -159,7 +161,7 @@ server.registerTool(
   },
   async ({ trace_path, limit, offset }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
       const errors = trace.console.filter((c) => c.type === "error");
       const warnings = trace.console.filter((c) => c.type === "warning");
       const pagedErrors = errors.slice(offset, offset + limit);
@@ -211,7 +213,7 @@ server.registerTool(
   },
   async ({ trace_path, action_index }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
 
       if (trace.snapshots.length === 0) {
         return {
@@ -273,7 +275,7 @@ server.registerTool(
   },
   async ({ trace_path }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
       const failedAction = trace.actions.find((a) => a.error);
       if (!failedAction) {
         return {
@@ -316,7 +318,7 @@ server.registerTool(
   },
   async ({ trace_path }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
       const results = analyzeRaceConditions(trace);
       return {
         content: [
@@ -352,7 +354,7 @@ server.registerTool(
   },
   async ({ trace_path, action_index }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
       const delta = getDomMutationDelta(trace, action_index);
       return {
         content: [{ type: "text", text: JSON.stringify(delta, null, 2) }],
@@ -381,7 +383,7 @@ server.registerTool(
   },
   async ({ trace_path, lookback_ms }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
       const chain = getCausalChain(trace, lookback_ms);
       return {
         content: [{ type: "text", text: JSON.stringify(chain, null, 2) }],
@@ -403,7 +405,7 @@ server.registerTool(
   },
   async ({ trace_path }) => {
     try {
-      const trace = await parseTraceZip(trace_path);
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
       const sig = generateErrorSignature(trace);
       return {
         content: [{ type: "text", text: JSON.stringify(sig, null, 2) }],
@@ -429,8 +431,8 @@ server.registerTool(
   async ({ passing_trace_path, failing_trace_path }) => {
     try {
       const [passing, failing] = await Promise.all([
-        parseTraceZip(passing_trace_path),
-        parseTraceZip(failing_trace_path),
+        parseTraceZip(await resolveTracePath(passing_trace_path)),
+        parseTraceZip(await resolveTracePath(failing_trace_path)),
       ]);
       const diff = compareTraces(passing, failing);
       return {
@@ -461,7 +463,7 @@ server.registerTool(
   },
   async ({ trace_path, screenshot_index }) => {
     try {
-      const screenshots = extractScreenshots(trace_path);
+      const screenshots = extractScreenshots(await resolveTracePath(trace_path));
 
       if (screenshots.length === 0) {
         return {
@@ -485,7 +487,7 @@ server.registerTool(
         }
         target = pick;
       } else {
-        const trace = await parseTraceZip(trace_path);
+        const trace = await parseTraceZip(await resolveTracePath(trace_path));
         const failed = trace.actions.find((a) => a.error);
         if (failed) {
           // Pick the latest screenshot taken at or before the failure

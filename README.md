@@ -25,6 +25,8 @@ Tools are grouped by how an agent should sequence them when diagnosing a failure
 
 All list-returning tools support `limit` (1–500, default 50) and `offset` pagination with a `has_more` flag.
 
+`trace_path` accepts either an absolute local path **or an HTTPS URL** — the server downloads the file automatically and caches it for the session.
+
 ### DOM / UI analysis
 
 | Tool | Arguments | What it returns |
@@ -98,6 +100,23 @@ npm run build
 ```bash
 claude mcp add playwright-trace-decoder \
   node /absolute/path/to/playwright-trace-decoder-mcp/dist/index.js
+```
+
+#### Docker
+
+```bash
+docker build -t playwright-trace-decoder-mcp .
+```
+
+```json
+{
+  "mcpServers": {
+    "playwright-trace-decoder": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "-v", "/path/to/traces:/traces", "playwright-trace-decoder-mcp"]
+    }
+  }
+}
 ```
 
 ## 💬 Example usage
