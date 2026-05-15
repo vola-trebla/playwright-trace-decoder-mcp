@@ -44,6 +44,12 @@ export interface FrameSnapshot {
   timestamp: number;
 }
 
+export interface TraceScreenshot {
+  entryName: string;
+  timestamp: number;
+  data: Buffer;
+}
+
 export interface ParsedTrace {
   metadata: TraceMetadata;
   events: TraceEvent[];

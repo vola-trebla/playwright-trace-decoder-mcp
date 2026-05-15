@@ -10,6 +10,7 @@ import {
   ConsoleMessage,
   TraceEvent,
   FrameSnapshot,
+  TraceScreenshot,
 } from "./types.js";
 
 const CACHE_MAX = 50;
@@ -148,6 +149,24 @@ function extractSnapshots(events: TraceEvent[]): FrameSnapshot[] {
         timestamp: Number(snap.timestamp ?? 0),
       };
     });
+}
+
+// Filename pattern: resources/page@<id>-<timestamp>.jpeg
+const SCREENSHOT_RE = /^resources\/page@[^-]+-(\d+)\.jpeg$/;
+
+export function extractScreenshots(zipPath: string): TraceScreenshot[] {
+  const zip = new AdmZip(zipPath);
+  const results: TraceScreenshot[] = [];
+
+  for (const entry of zip.getEntries()) {
+    const match = SCREENSHOT_RE.exec(entry.entryName);
+    if (!match) continue;
+    const timestamp = Number(match[1]);
+    results.push({ entryName: entry.entryName, timestamp, data: entry.getData() });
+  }
+
+  results.sort((a, b) => a.timestamp - b.timestamp);
+  return results;
 }
 
 function extractConsole(events: TraceEvent[]): ConsoleMessage[] {

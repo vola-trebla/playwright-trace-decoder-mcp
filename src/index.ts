@@ -2,7 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
-import { parseTraceZip } from "./trace-parser.js";
+import { parseTraceZip, extractScreenshots } from "./trace-parser.js";
 import { snapshotToAriaYaml } from "./aria-translator.js";
 import { analyzeRaceConditions, getDomMutationDelta, getCausalChain } from "./diagnostics.js";
 import { generateErrorSignature, compareTraces } from "./cross-trace.js";
@@ -435,6 +435,89 @@ server.registerTool(
       const diff = compareTraces(passing, failing);
       return {
         content: [{ type: "text", text: JSON.stringify(diff, null, 2) }],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
+  }
+);
+
+server.registerTool(
+  "get_screenshot_at_failure",
+  {
+    description:
+      "Returns the screenshot (base64 JPEG) from the trace closest to the moment of failure. " +
+      "Use when get_aria_accessibility_tree returns an empty or unhelpful tree — the image " +
+      "shows exactly what was on screen. Pass screenshot_index to retrieve any specific " +
+      "screenshot from the trace (0-based); omit to get the one nearest to the failure.",
+    inputSchema: traceInputSchema.extend({
+      screenshot_index: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("0-based index into the screenshot list. Omit to get the one at failure."),
+    }),
+  },
+  async ({ trace_path, screenshot_index }) => {
+    try {
+      const screenshots = extractScreenshots(trace_path);
+
+      if (screenshots.length === 0) {
+        return {
+          content: [{ type: "text", text: "No screenshots found in this trace." }],
+        };
+      }
+
+      let target = screenshots[screenshots.length - 1];
+
+      if (screenshot_index !== undefined) {
+        const pick = screenshots[screenshot_index];
+        if (!pick) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `screenshot_index ${screenshot_index} out of range (0–${screenshots.length - 1})`,
+              },
+            ],
+          };
+        }
+        target = pick;
+      } else {
+        const trace = await parseTraceZip(trace_path);
+        const failed = trace.actions.find((a) => a.error);
+        if (failed) {
+          // Pick the latest screenshot taken at or before the failure
+          const before = screenshots.filter((s) => s.timestamp <= failed.startTime);
+          if (before.length > 0) target = before[before.length - 1];
+        }
+      }
+
+      const failed =
+        screenshot_index === undefined
+          ? (await parseTraceZip(trace_path)).actions.find((a) => a.error)
+          : undefined;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                snapshot_timestamp: target.timestamp,
+                failure_time: failed?.startTime ?? null,
+                delta_ms: failed ? Math.round(failed.startTime - target.timestamp) : null,
+                total_screenshots: screenshots.length,
+                screenshot_index: screenshots.indexOf(target),
+                mime_type: "image/jpeg",
+                data: target.data.toString("base64"),
+              },
+              null,
+              2
+            ),
+          },
+        ],
       };
     } catch (err) {
       return errorResponse(err);
