@@ -1,5 +1,8 @@
 import AdmZip from "adm-zip";
-import { statSync } from "fs";
+import { statSync, writeFileSync, mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { createHash } from "crypto";
 import { createInterface } from "readline";
 import { Readable } from "stream";
 import {
@@ -12,6 +15,32 @@ import {
   FrameSnapshot,
   TraceScreenshot,
 } from "./types.js";
+
+// If trace_path is a URL, download it to a stable temp path keyed by URL hash.
+// The file persists for the process lifetime so the LRU cache still works.
+const urlTempDir = mkdtempSync(join(tmpdir(), "pw-trace-mcp-"));
+
+export async function resolveTracePath(tracePathOrUrl: string): Promise<string> {
+  if (!tracePathOrUrl.startsWith("http://") && !tracePathOrUrl.startsWith("https://")) {
+    return tracePathOrUrl;
+  }
+  const hash = createHash("sha1").update(tracePathOrUrl).digest("hex").slice(0, 16);
+  const dest = join(urlTempDir, `${hash}.zip`);
+  // Re-use the cached download within the same process run
+  try {
+    statSync(dest);
+    return dest;
+  } catch {
+    // not yet downloaded
+  }
+  const res = await fetch(tracePathOrUrl);
+  if (!res.ok) {
+    throw new Error(`Failed to download trace from URL: ${res.status} ${res.statusText}`);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  writeFileSync(dest, buffer);
+  return dest;
+}
 
 const CACHE_MAX = 50;
 const cache = new Map<string, { mtime: number; parsed: ParsedTrace }>();
