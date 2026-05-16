@@ -1,5 +1,10 @@
 # 🎭 playwright-trace-decoder-mcp
 
+[![npm version](https://img.shields.io/npm/v/playwright-trace-decoder-mcp.svg)](https://www.npmjs.com/package/playwright-trace-decoder-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/playwright-trace-decoder-mcp.svg)](https://www.npmjs.com/package/playwright-trace-decoder-mcp)
+[![CI](https://github.com/vola-trebla/playwright-trace-decoder-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/vola-trebla/playwright-trace-decoder-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 An MCP server that unpacks and structures Playwright `trace.zip` archives so AI agents can perform root-cause analysis on CI failures — without drowning in raw JSON or blowing up the context window.
 
 ## 🤔 The Problem
