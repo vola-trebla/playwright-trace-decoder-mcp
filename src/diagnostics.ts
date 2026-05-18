@@ -141,6 +141,80 @@ export function getDomMutationDelta(trace: ParsedTrace, actionIndex: number): Do
 }
 
 // ---------------------------------------------------------------------------
+// correlate_dom_and_network
+// ---------------------------------------------------------------------------
+
+export interface NetworkDomCorrelation {
+  action_id: string;
+  triggering_request_url: string;
+  response_status_code: number;
+  response_body_snippet: string;
+  time_to_dom_mutation_ms: number;
+  resulting_dom_mutations: Array<{ type: "added" | "removed" | "changed"; selector: string }>;
+}
+
+const NOISE_PATTERNS = [
+  /analytics/i,
+  /tracking/i,
+  /beacon/i,
+  /telemetry/i,
+  /metrics/i,
+  /ping\b/i,
+  /pixel/i,
+  /\.gif(\?|$)/i,
+];
+
+export function correlateNetworkAndDom(trace: ParsedTrace): NetworkDomCorrelation[] {
+  const results: NetworkDomCorrelation[] = [];
+
+  trace.actions.forEach((action, index) => {
+    const delta = getDomMutationDelta(trace, index);
+    const mutations: Array<{ type: "added" | "removed" | "changed"; selector: string }> = [
+      ...delta.added.map((s) => ({ type: "added" as const, selector: s })),
+      ...delta.removed.map((s) => ({ type: "removed" as const, selector: s })),
+    ];
+
+    if (mutations.length === 0) return;
+
+    // Network requests whose response completed during this action's window (±100ms)
+    const windowStart = action.startTime - 100;
+    const windowEnd = action.endTime + 100;
+
+    const candidates = trace.network.filter((n) => {
+      const responseComplete = n.startTime + n.duration;
+      return (
+        responseComplete >= windowStart &&
+        responseComplete <= windowEnd &&
+        !NOISE_PATTERNS.some((p) => p.test(n.url)) &&
+        !(n.mimeType.startsWith("image/") && n.status === 204)
+      );
+    });
+
+    if (candidates.length === 0) return;
+
+    // Pick the request whose response completed closest to the action start
+    const trigger = candidates.reduce((best, n) => {
+      const dA = Math.abs(n.startTime + n.duration - action.startTime);
+      const dB = Math.abs(best.startTime + best.duration - action.startTime);
+      return dA < dB ? n : best;
+    });
+
+    const responseCompleteTime = trigger.startTime + trigger.duration;
+
+    results.push({
+      action_id: `${index}:${action.type}`,
+      triggering_request_url: trigger.url,
+      response_status_code: trigger.status,
+      response_body_snippet: trigger.body_snippet ?? "",
+      time_to_dom_mutation_ms: Math.round(action.endTime - responseCompleteTime),
+      resulting_dom_mutations: mutations.slice(0, 10),
+    });
+  });
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // get_causal_chain_for_failure
 // ---------------------------------------------------------------------------
 

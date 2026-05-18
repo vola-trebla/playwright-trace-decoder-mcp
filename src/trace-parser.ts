@@ -262,6 +262,14 @@ function extractNetwork(networkEvents: TraceEvent[]): NetworkEntry[] {
       const req = snap.request as Record<string, unknown>;
       const resp = snap.response as Record<string, unknown>;
       const content = resp?.content as Record<string, unknown> | undefined;
+      let body_snippet: string | undefined;
+      if (content?._base64) {
+        body_snippet = Buffer.from(String(content._base64), "base64")
+          .toString("utf8")
+          .slice(0, 200);
+      } else if (content?.text) {
+        body_snippet = String(content.text).slice(0, 200);
+      }
       return {
         url: String(req?.url ?? ""),
         method: String(req?.method ?? "GET"),
@@ -269,6 +277,7 @@ function extractNetwork(networkEvents: TraceEvent[]): NetworkEntry[] {
         startTime: Number(snap._monotonicTime ?? 0),
         duration: Number(snap.time ?? 0),
         mimeType: String(content?.mimeType ?? "other"),
+        ...(body_snippet !== undefined ? { body_snippet } : {}),
       };
     });
 }

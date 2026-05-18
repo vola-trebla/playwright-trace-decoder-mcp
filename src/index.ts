@@ -9,7 +9,12 @@ import {
   resolveTracePath,
 } from "./trace-parser.js";
 import { snapshotToAriaYaml } from "./aria-translator.js";
-import { analyzeRaceConditions, getDomMutationDelta, getCausalChain } from "./diagnostics.js";
+import {
+  analyzeRaceConditions,
+  correlateNetworkAndDom,
+  getDomMutationDelta,
+  getCausalChain,
+} from "./diagnostics.js";
 import { generateErrorSignature, compareTraces } from "./cross-trace.js";
 
 const server = new McpServer({
@@ -520,6 +525,40 @@ server.registerTool(
                 mime_type: "image/jpeg",
                 data: target.data.toString("base64"),
               },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
+  }
+);
+
+server.registerTool(
+  "correlate_dom_and_network",
+  {
+    description:
+      "Joins the HAR network log and DOM snapshots into an explicit causal chain. " +
+      "For each action where a network response completed and the DOM mutated within ±100ms, " +
+      "returns the triggering request URL, response status, body snippet, and the exact DOM nodes " +
+      "that appeared or disappeared. Background polling and analytics pixels are filtered out. " +
+      "Use to diagnose race conditions and async rendering bugs — removes hallucination from " +
+      "the question 'did this fetch cause this DOM change?'",
+    inputSchema: traceInputSchema,
+  },
+  async ({ trace_path }) => {
+    try {
+      const trace = await parseTraceZip(await resolveTracePath(trace_path));
+      const correlations = correlateNetworkAndDom(trace);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              { total_correlations: correlations.length, correlations },
               null,
               2
             ),
