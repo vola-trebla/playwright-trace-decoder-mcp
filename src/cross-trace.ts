@@ -182,6 +182,27 @@ export function compareTraces(passing: ParsedTrace, failing: ParsedTrace): Trace
     }
   }
 
+  // If no matched-pair error divergence, check for errors in unmatched failing actions.
+  // The most common case: the failing action doesn't exist at all in the passing run.
+  if (!error_divergence) {
+    const firstFailingOnly = only_in_failing.find((a) => a.error);
+    if (firstFailingOnly) {
+      const f = failingActions[firstFailingOnly.index];
+      const fDur = f.endTime - f.startTime;
+      error_divergence = {
+        passing_index: -1,
+        failing_index: firstFailingOnly.index,
+        type: f.type,
+        passing_duration_ms: 0,
+        failing_duration_ms: Math.round(fDur),
+        delta_ms: 0,
+        passing_error: null,
+        failing_error: f.error ?? null,
+        is_timing_anomaly: false,
+      };
+    }
+  }
+
   // First structural divergence: earliest position where sequences are no longer in sync
   let first_structural_divergence: TraceDiff["first_structural_divergence"] = null;
   for (let k = 0; k < pairs.length - 1; k++) {

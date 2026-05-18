@@ -225,6 +225,13 @@ function extractMetadata(events: TraceEvent[]): TraceMetadata {
   };
 }
 
+ 
+const ANSI_RE = /\x1b\[[0-9;]*[mGKHF]/g;
+
+function stripAnsi(s: string): string {
+  return s.replace(ANSI_RE, "");
+}
+
 function extractActions(events: TraceEvent[]): TraceAction[] {
   const afterMap = new Map<string, TraceEvent>();
   for (const e of events) {
@@ -248,7 +255,7 @@ function extractActions(events: TraceEvent[]): TraceAction[] {
           : params.locator
             ? String(params.locator)
             : undefined,
-        error: error?.message ? String(error.message) : undefined,
+        error: error?.message ? stripAnsi(String(error.message)) : undefined,
         metadata: { before, after },
       };
     });
