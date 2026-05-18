@@ -22,12 +22,22 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      - name: Validate tag matches package.json version
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "ERROR: tag v${TAG_VERSION} does not match package.json version ${PKG_VERSION}"
+            exit 1
+          fi
+          echo "Version check passed: ${PKG_VERSION}"
+
       - name: Publish to npm
         run: |
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
           if npm view "${NAME}@${VERSION}" > /dev/null 2>&1; then
-            echo "Version ${VERSION} already published, skipping."
+            echo "npm: ${VERSION} already published, skipping."
           else
             npm publish
           fi
@@ -47,4 +57,16 @@ jobs:
         run: ./mcp-publisher login github-oidc
 
       - name: Publish to MCP Registry
-        run: ./mcp-publisher publish
+        run: |
+          set +e
+          ./mcp-publisher publish > /tmp/mcp-out.txt 2>&1
+          EXIT=$?
+          cat /tmp/mcp-out.txt
+          if [ $EXIT -eq 0 ]; then
+            exit 0
+          elif grep -q "duplicate version" /tmp/mcp-out.txt; then
+            echo "MCP Registry: version already published, skipping."
+            exit 0
+          else
+            exit $EXIT
+          fi
