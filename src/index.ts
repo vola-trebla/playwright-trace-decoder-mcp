@@ -2,7 +2,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
-import { parseTraceZip, extractScreenshots, resolveTracePath } from "./trace-parser.js";
+import {
+  parseTraceZip,
+  extractScreenshots,
+  extractTraceMetadataStrict,
+  resolveTracePath,
+} from "./trace-parser.js";
 import { snapshotToAriaYaml } from "./aria-translator.js";
 import { analyzeRaceConditions, getDomMutationDelta, getCausalChain } from "./diagnostics.js";
 import { generateErrorSignature, compareTraces } from "./cross-trace.js";
@@ -520,6 +525,31 @@ server.registerTool(
             ),
           },
         ],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
+  }
+);
+
+server.registerTool(
+  "extract_trace_metadata_strict",
+  {
+    description:
+      "Strictly inspects a Playwright trace archive and returns format version, retry session " +
+      "breakdown, and HAR payload mode. Handles .pwtrace.zip extensions (newer Playwright CI), " +
+      "multi-retry archives (identifies which retry failed), and all three HAR modes: " +
+      "embed (bodies inline), attach (bodies as separate files), omit (headers only). " +
+      "Use before other trace tools when the archive may be from an unfamiliar Playwright version " +
+      "or CI configuration — confirms the trace is valid and tells you what data is available.",
+    inputSchema: traceInputSchema,
+  },
+  async ({ trace_path }) => {
+    try {
+      const resolved = await resolveTracePath(trace_path);
+      const result = extractTraceMetadataStrict(resolved);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
     } catch (err) {
       return errorResponse(err);
