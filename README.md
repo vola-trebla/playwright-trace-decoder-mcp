@@ -19,14 +19,14 @@ Tools are grouped by how an agent should sequence them when diagnosing a failure
 
 ### Inspection — read trace data
 
-| Tool | Arguments | What it returns |
-|------|-----------|----------------|
-| `get_test_metadata` | `trace_path` | Browser, platform, viewport, test title, wall-clock start time |
-| `get_trace_summary` | `trace_path` | Failing action + top-level error + total action count |
-| `get_action_timeline` | `trace_path`, `limit`, `offset` | Paginated list of all actions with API names, locators, and timings |
-| `get_filtered_network_logs` | `trace_path`, `limit`, `offset` | Only 4xx/5xx responses — static assets (CSS, JS, fonts, images) stripped |
-| `get_console_errors` | `trace_path`, `limit`, `offset` | JS exceptions and warnings from the browser console |
-| `get_element_state_at_failure` | `trace_path` | Failing locator, error message, and raw before/after metadata |
+| Tool                           | Arguments                       | What it returns                                                          |
+| ------------------------------ | ------------------------------- | ------------------------------------------------------------------------ |
+| `get_test_metadata`            | `trace_path`                    | Browser, platform, viewport, test title, wall-clock start time           |
+| `get_trace_summary`            | `trace_path`                    | Failing action + top-level error + total action count                    |
+| `get_action_timeline`          | `trace_path`, `limit`, `offset` | Paginated list of all actions with API names, locators, and timings      |
+| `get_filtered_network_logs`    | `trace_path`, `limit`, `offset` | Only 4xx/5xx responses — static assets (CSS, JS, fonts, images) stripped |
+| `get_console_errors`           | `trace_path`, `limit`, `offset` | JS exceptions and warnings from the browser console                      |
+| `get_element_state_at_failure` | `trace_path`                    | Failing locator, error message, and raw before/after metadata            |
 
 All list-returning tools support `limit` (1–500, default 50) and `offset` pagination with a `has_more` flag.
 
@@ -34,20 +34,20 @@ All list-returning tools support `limit` (1–500, default 50) and `offset` pagi
 
 ### DOM / UI analysis
 
-| Tool | Arguments | What it returns |
-|------|-----------|----------------|
-| `get_aria_accessibility_tree` | `trace_path`, `action_index?` | ARIA accessibility tree as compact YAML (~90% fewer tokens than raw HTML). Defaults to the snapshot at the failed action. |
-| `get_dom_mutation_delta` | `trace_path`, `action_index` | Set-diff of ARIA lines before vs after a specific action — added/removed elements only, not two full DOM dumps |
-| `get_screenshot_at_failure` | `trace_path`, `screenshot_index?` | Base64 JPEG screenshot closest to the moment of failure. Use when ARIA tree is empty (captcha, blank page). `screenshot_index` lets you walk the full visual timeline. |
-| `analyze_race_conditions` | `trace_path` | Network requests that were in-flight when an interaction or assertion fired |
+| Tool                          | Arguments                         | What it returns                                                                                                                                                        |
+| ----------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_aria_accessibility_tree` | `trace_path`, `action_index?`     | ARIA accessibility tree as compact YAML (~90% fewer tokens than raw HTML). Defaults to the snapshot at the failed action.                                              |
+| `get_dom_mutation_delta`      | `trace_path`, `action_index`      | Set-diff of ARIA lines before vs after a specific action — added/removed elements only, not two full DOM dumps                                                         |
+| `get_screenshot_at_failure`   | `trace_path`, `screenshot_index?` | Base64 JPEG screenshot closest to the moment of failure. Use when ARIA tree is empty (captcha, blank page). `screenshot_index` lets you walk the full visual timeline. |
+| `analyze_race_conditions`     | `trace_path`                      | Network requests that were in-flight when an interaction or assertion fired                                                                                            |
 
 ### Root-cause analysis
 
-| Tool | Arguments | What it returns |
-|------|-----------|----------------|
-| `get_causal_chain_for_failure` | `trace_path`, `lookback_ms?` | Chronological chain of preceding actions, network errors, and console errors leading to the failure (default window: 5 s) |
-| `generate_error_signature` | `trace_path` | Stable 12-char SHA-1 hash of the normalized error — use to group duplicate failures across parallel CI runs |
-| `compare_traces` | `passing_trace_path`, `failing_trace_path` | LCS-aligned action sequence between a passing and failing run: structural divergence, timing anomalies (>500 ms), unmatched actions, network delta |
+| Tool                           | Arguments                                  | What it returns                                                                                                                                    |
+| ------------------------------ | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_causal_chain_for_failure` | `trace_path`, `lookback_ms?`               | Chronological chain of preceding actions, network errors, and console errors leading to the failure (default window: 5 s)                          |
+| `generate_error_signature`     | `trace_path`                               | Stable 12-char SHA-1 hash of the normalized error — use to group duplicate failures across parallel CI runs                                        |
+| `compare_traces`               | `passing_trace_path`, `failing_trace_path` | LCS-aligned action sequence between a passing and failing run: structural divergence, timing anomalies (>500 ms), unmatched actions, network delta |
 
 ## 💬 Suggested agent workflow
 
@@ -130,25 +130,25 @@ docker build -t playwright-trace-decoder-mcp .
 
 Ask your agent:
 
-> *"The CI run failed. Here's the trace: `/tmp/trace.zip`. What went wrong and why?"*
+> _"The CI run failed. Here's the trace: `/tmp/trace.zip`. What went wrong and why?"_
 
 The agent calls `get_trace_summary` → `get_causal_chain_for_failure` → `get_aria_accessibility_tree`, drilling deeper as needed — without you copy-pasting anything.
 
 ### When the page was blank or redirected
 
-> *"The ARIA tree is empty. Can you show me what was actually on screen when it failed?"*
+> _"The ARIA tree is empty. Can you show me what was actually on screen when it failed?"_
 
 The agent calls `get_screenshot_at_failure` and gets the JPEG taken closest to the moment of failure — useful for catching captchas, error pages, or unexpected redirects.
 
 ### Flakiness diagnosis
 
-> *"This test passes locally but fails in CI. Compare these two traces and tell me what was different."*
+> _"This test passes locally but fails in CI. Compare these two traces and tell me what was different."_
 
 The agent calls `compare_traces`, which LCS-aligns both action sequences and surfaces the first structural divergence, timing anomalies, and network requests that only appeared in the failing run.
 
 ### Grouping duplicate failures across parallel CI runs
 
-> *"We have 12 failed traces from this pipeline. Are they all the same failure?"*
+> _"We have 12 failed traces from this pipeline. Are they all the same failure?"_
 
 Call `generate_error_signature` on each — identical signatures mean identical root cause, no need to read every trace.
 
