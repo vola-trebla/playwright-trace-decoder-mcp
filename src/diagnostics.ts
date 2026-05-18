@@ -1,4 +1,4 @@
-import { ParsedTrace } from "./types.js";
+import { ParsedTrace, TraceAction } from "./types.js";
 import { snapshotToAriaYaml } from "./aria-translator.js";
 
 // ---------------------------------------------------------------------------
@@ -295,5 +295,197 @@ export function getCausalChain(trace: ParsedTrace, lookbackMs = 5000): CausalCha
     failure_time: failureTime,
     lookback_ms: lookbackMs,
     chain,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// detect_performance_anomalies
+// ---------------------------------------------------------------------------
+
+export interface PerformanceAnomaly {
+  kind: "slow_action" | "frame_drop";
+  blocked_action_id: string;
+  task_duration_ms: number;
+  threshold_ms: number;
+  concurrent_network_load: number;
+  frame_drop_count: number;
+  worst_frame_gap_ms: number;
+  suspected_cause:
+    | "main_thread_blocked"
+    | "network_saturation"
+    | "timeout_or_navigation"
+    | "unknown";
+}
+
+export interface PerformanceReport {
+  anomalies: PerformanceAnomaly[];
+  suspected_memory_leak_flag: boolean;
+  p50_action_duration_ms: number;
+  p95_action_duration_ms: number;
+  total_frame_drop_count: number;
+}
+
+function getActionType(action: TraceAction): string {
+  const before = (action.metadata as Record<string, Record<string, unknown>> | undefined)?.before;
+  if (before?.apiName) return String(before.apiName);
+  if (before?.class && before?.method) return `${String(before.class)}.${String(before.method)}`;
+  return action.type;
+}
+
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.floor((p / 100) * (sorted.length - 1));
+  return sorted[idx];
+}
+
+export function detectPerformanceAnomalies(
+  trace: ParsedTrace,
+  slowActionThresholdMs = 500,
+  frameDropThresholdMs = 50
+): PerformanceReport {
+  // Frame gaps from screencast-frame events
+  const frameTimestamps = trace.events
+    .filter((e) => e.type === "screencast-frame")
+    .map((e) => Number(e.timestamp ?? 0))
+    .filter((t) => t > 0)
+    .sort((a, b) => a - b);
+
+  const frameGaps: Array<{ gapMs: number; windowStart: number; windowEnd: number }> = [];
+  for (let i = 1; i < frameTimestamps.length; i++) {
+    const gap = frameTimestamps[i] - frameTimestamps[i - 1];
+    if (gap > frameDropThresholdMs) {
+      frameGaps.push({
+        gapMs: gap,
+        windowStart: frameTimestamps[i - 1],
+        windowEnd: frameTimestamps[i],
+      });
+    }
+  }
+
+  const totalFrameDropCount = frameGaps.length;
+
+  // Action durations for stats
+  const actionDurations = trace.actions.map((a) =>
+    a.endTime > a.startTime ? a.endTime - a.startTime : 0
+  );
+  const nonTrivial = actionDurations.filter((d) => d > 10).sort((a, b) => a - b);
+  const p50 = percentile(nonTrivial, 50);
+  const p95 = percentile(nonTrivial, 95);
+
+  function concurrentNetworkLoad(windowStart: number, windowEnd: number): number {
+    return trace.network.filter((n) => {
+      const end = n.startTime + n.duration;
+      return n.startTime < windowEnd && end > windowStart;
+    }).length;
+  }
+
+  function frameDropsInWindow(windowStart: number, windowEnd: number) {
+    const drops = frameGaps.filter(
+      (g) => g.windowStart >= windowStart && g.windowStart <= windowEnd
+    );
+    return {
+      count: drops.length,
+      worstGap: drops.length > 0 ? Math.max(...drops.map((g) => g.gapMs)) : 0,
+    };
+  }
+
+  const anomalies: PerformanceAnomaly[] = [];
+  const coveredGapIndices = new Set<number>();
+
+  trace.actions.forEach((action, index) => {
+    const dur = actionDurations[index];
+    if (dur < slowActionThresholdMs) return;
+
+    const type = getActionType(action);
+    const netLoad = concurrentNetworkLoad(action.startTime, action.endTime);
+    const { count: dropCount, worstGap } = frameDropsInWindow(action.startTime, action.endTime);
+
+    let suspectedCause: PerformanceAnomaly["suspected_cause"] = "unknown";
+    if (dropCount > 0) {
+      suspectedCause = "main_thread_blocked";
+    } else if (netLoad >= 5) {
+      suspectedCause = "network_saturation";
+    } else if (dur > 3000) {
+      suspectedCause = "timeout_or_navigation";
+    }
+
+    // Mark overlapping frame drops as covered
+    frameGaps.forEach((g, i) => {
+      if (g.windowStart >= action.startTime && g.windowStart <= action.endTime) {
+        coveredGapIndices.add(i);
+      }
+    });
+
+    anomalies.push({
+      kind: "slow_action",
+      blocked_action_id: `${index}:${type}`,
+      task_duration_ms: Math.round(dur),
+      threshold_ms: slowActionThresholdMs,
+      concurrent_network_load: netLoad,
+      frame_drop_count: dropCount,
+      worst_frame_gap_ms: Math.round(worstGap),
+      suspected_cause: suspectedCause,
+    });
+  });
+
+  // Prominent standalone frame drops (>= 200ms) not covered by a slow action
+  const PROMINENT_DROP_MS = 200;
+  frameGaps.forEach((gap, i) => {
+    if (coveredGapIndices.has(i) || gap.gapMs < PROMINENT_DROP_MS) return;
+
+    const overlappingIdx = trace.actions.findIndex(
+      (a) => a.startTime <= gap.windowStart && a.endTime >= gap.windowEnd
+    );
+    const overlapping = overlappingIdx >= 0 ? trace.actions[overlappingIdx] : null;
+    const netLoad = concurrentNetworkLoad(gap.windowStart, gap.windowEnd);
+
+    anomalies.push({
+      kind: "frame_drop",
+      blocked_action_id: overlapping ? `${overlappingIdx}:${getActionType(overlapping)}` : "none",
+      task_duration_ms: Math.round(gap.gapMs),
+      threshold_ms: PROMINENT_DROP_MS,
+      concurrent_network_load: netLoad,
+      frame_drop_count: 1,
+      worst_frame_gap_ms: Math.round(gap.gapMs),
+      suspected_cause: netLoad >= 3 ? "network_saturation" : "main_thread_blocked",
+    });
+  });
+
+  // Memory leak: same action type (class.method), >= 3 occurrences with strictly
+  // increasing durations (allowing 10% variance)
+  const durationsByType = new Map<string, number[]>();
+  trace.actions.forEach((action, i) => {
+    const dur = actionDurations[i];
+    if (dur < 10) return;
+    const type = getActionType(action);
+    const list = durationsByType.get(type);
+    if (list) list.push(dur);
+    else durationsByType.set(type, [dur]);
+  });
+
+  let suspectedMemoryLeakFlag = false;
+  for (const durs of durationsByType.values()) {
+    if (durs.length < 3) continue;
+    let increasing = true;
+    for (let i = 1; i < durs.length; i++) {
+      if (durs[i] < durs[i - 1] * 0.9) {
+        increasing = false;
+        break;
+      }
+    }
+    if (increasing) {
+      suspectedMemoryLeakFlag = true;
+      break;
+    }
+  }
+
+  anomalies.sort((a, b) => b.task_duration_ms - a.task_duration_ms);
+
+  return {
+    anomalies,
+    suspected_memory_leak_flag: suspectedMemoryLeakFlag,
+    p50_action_duration_ms: Math.round(p50),
+    p95_action_duration_ms: Math.round(p95),
+    total_frame_drop_count: totalFrameDropCount,
   };
 }
