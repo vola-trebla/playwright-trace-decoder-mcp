@@ -225,7 +225,6 @@ function extractMetadata(events: TraceEvent[]): TraceMetadata {
   };
 }
 
- 
 const ANSI_RE = /\x1b\[[0-9;]*[mGKHF]/g;
 
 function stripAnsi(s: string): string {

@@ -18,11 +18,12 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "**/*.{ts,mjs,json,md}": [
+    "**/*.{mjs,json,md}": [
       "prettier --write"
     ],
-    "src/**/*.ts": [
-      "eslint --fix"
+    "**/*.ts": [
+      "eslint --fix",
+      "prettier --write"
     ]
   },
   "mcpName": "io.github.vola-trebla/playwright-trace-decoder-mcp",
