@@ -24,13 +24,22 @@
       "eslint --fix"
     ]
   },
+  "mcpName": "io.github.vola-trebla/playwright-trace-decoder-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vola-trebla/playwright-trace-decoder-mcp.git"
+  },
   "keywords": [
     "playwright",
     "mcp",
     "testing",
-    "trace"
+    "trace",
+    "ai-tools",
+    "sdet",
+    "ci",
+    "debugging"
   ],
-  "author": "",
+  "author": "vola-trebla",
   "license": "MIT",
   "type": "module",
   "dependencies": {

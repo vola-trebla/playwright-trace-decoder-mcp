@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.vola-trebla/playwright-trace-decoder-mcp",
+  "description": "MCP server for unpacking and analyzing Playwright trace.zip archives",
+  "repository": {
+    "url": "https://github.com/vola-trebla/playwright-trace-decoder-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "playwright-trace-decoder-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
