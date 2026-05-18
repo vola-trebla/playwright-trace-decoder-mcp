@@ -22,6 +22,7 @@ export interface NetworkEntry {
   startTime: number;
   duration: number;
   mimeType: string;
+  body_snippet?: string;
 }
 
 export interface ConsoleMessage {
