@@ -14,6 +14,7 @@ import {
   correlateNetworkAndDom,
   getDomMutationDelta,
   getCausalChain,
+  detectPerformanceAnomalies,
 } from "./diagnostics.js";
 import { generateErrorSignature, compareTraces } from "./cross-trace.js";
 
@@ -587,6 +588,51 @@ server.registerTool(
     try {
       const resolved = await resolveTracePath(trace_path);
       const result = extractTraceMetadataStrict(resolved);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return errorResponse(err);
+    }
+  }
+);
+
+server.registerTool(
+  "detect_performance_anomalies",
+  {
+    description:
+      "Detects Long Tasks and frame drops that cause Playwright timeouts. Analyses screencast-frame " +
+      "timestamps for main-thread blocking (gaps > 50ms), flags actions that took longer than " +
+      "500ms, counts concurrent in-flight network requests during each slow action, and checks for " +
+      "monotonically increasing action durations (suspected memory leak). Returns a ranked list of " +
+      "anomalies with a suspected_cause so the agent can distinguish a blocked main thread from " +
+      "network saturation or a navigation timeout — without blaming a missing element.",
+    inputSchema: traceInputSchema.extend({
+      slow_action_threshold_ms: z
+        .number()
+        .int()
+        .positive()
+        .default(500)
+        .optional()
+        .describe("Actions longer than this are flagged (default 500ms)"),
+      frame_drop_threshold_ms: z
+        .number()
+        .int()
+        .positive()
+        .default(50)
+        .optional()
+        .describe("Screencast frame gaps longer than this count as a drop (default 50ms)"),
+    }),
+  },
+  async ({ trace_path, slow_action_threshold_ms, frame_drop_threshold_ms }) => {
+    try {
+      const resolved = await resolveTracePath(trace_path);
+      const trace = await parseTraceZip(resolved);
+      const result = detectPerformanceAnomalies(
+        trace,
+        slow_action_threshold_ms ?? 500,
+        frame_drop_threshold_ms ?? 50
+      );
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
