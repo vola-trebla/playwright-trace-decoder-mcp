@@ -7,8 +7,10 @@ import { createInterface } from "readline";
 import { Readable } from "stream";
 import {
   ParsedTrace,
+  StrictTraceMetadata,
   TraceAction,
   TraceMetadata,
+  TraceSession,
   NetworkEntry,
   ConsoleMessage,
   TraceEvent,
@@ -89,6 +91,112 @@ export async function parseTraceZip(zipPath: string): Promise<ParsedTrace> {
 
   cacheSet(zipPath, { mtime, parsed });
   return parsed;
+}
+
+function parseJsonlSync(buffer: Buffer): TraceEvent[] {
+  const events: TraceEvent[] = [];
+  for (const line of buffer.toString("utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      events.push(JSON.parse(trimmed) as TraceEvent);
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return events;
+}
+
+export function extractTraceMetadataStrict(zipPath: string): StrictTraceMetadata {
+  const zip = new AdmZip(zipPath);
+  const entries = zip.getEntries();
+  const filename = zipPath.split("/").pop() ?? zipPath;
+
+  const fileExtension = filename.endsWith(".pwtrace.zip") ? ".pwtrace.zip" : ".zip";
+
+  const traceEntries = entries
+    .filter((e) => e.entryName.endsWith(".trace"))
+    .sort((a, b) => {
+      // trace.trace = attempt 0, trace-1.trace = attempt 1, etc.
+      const numA = Number(/(\d+)\.trace$/.exec(a.entryName)?.[1] ?? 0);
+      const numB = Number(/(\d+)\.trace$/.exec(b.entryName)?.[1] ?? 0);
+      return numA - numB;
+    });
+
+  if (traceEntries.length === 0) {
+    throw new Error("No .trace files found — archive is not a valid Playwright trace");
+  }
+
+  let formatVersion = "unknown";
+  const sessions: TraceSession[] = traceEntries.map((entry, idx) => {
+    const events = parseJsonlSync(entry.getData());
+
+    if (idx === 0) {
+      const versionEvent = events.find(
+        (e) => e.type === "version" || typeof (e as Record<string, unknown>).version === "number"
+      );
+      if (versionEvent) {
+        const v = (versionEvent as Record<string, unknown>).version;
+        formatVersion = v !== undefined ? String(v) : "unknown";
+      }
+    }
+
+    const actions = extractActions(events);
+    const hasError = actions.some((a) => a.error);
+    const startTimes = actions.map((a) => a.startTime).filter((t) => t > 0);
+    const endTimes = actions.map((a) => a.endTime).filter((t) => t > 0);
+    const duration =
+      startTimes.length && endTimes.length ? Math.max(...endTimes) - Math.min(...startTimes) : 0;
+
+    return {
+      session_id: entry.entryName,
+      retry_index: idx,
+      status: hasError ? "failed" : "passed",
+      duration_ms: Math.round(duration),
+      action_count: actions.length,
+    };
+  });
+
+  const retryAttemptIndex = sessions.reduce((acc, s, i) => (s.status === "failed" ? i : acc), -1);
+
+  const networkEntries = entries.filter((e) => e.entryName.endsWith(".network"));
+  let harResolutionStatus: "embed" | "attach" | "omit" = "omit";
+  let embeddedPayloadsFlag = false;
+
+  if (networkEntries.length > 0) {
+    const networkEvents = parseJsonlSync(networkEntries[0].getData());
+    for (const snap of networkEvents.filter((e) => e.type === "resource-snapshot").slice(0, 20)) {
+      const snapshot = snap.snapshot as Record<string, unknown> | undefined;
+      const resp = snapshot?.response as Record<string, unknown> | undefined;
+      const content = resp?.content as Record<string, unknown> | undefined;
+      if (content?._base64 || content?.text) {
+        harResolutionStatus = "embed";
+        embeddedPayloadsFlag = true;
+        break;
+      }
+    }
+
+    if (harResolutionStatus !== "embed") {
+      const hasAttachedResources = entries.some(
+        (e) =>
+          e.entryName.startsWith("resources/") &&
+          !SCREENSHOT_RE.test(e.entryName) &&
+          !e.entryName.endsWith(".jpeg") &&
+          !e.entryName.endsWith(".png")
+      );
+      if (hasAttachedResources) harResolutionStatus = "attach";
+    }
+  }
+
+  return {
+    trace_format_version: formatVersion,
+    file_extension: fileExtension,
+    session_count: sessions.length,
+    retry_attempt_index: retryAttemptIndex,
+    har_resolution_status: harResolutionStatus,
+    embedded_payloads_flag: embeddedPayloadsFlag,
+    test_sessions_array: sessions,
+  };
 }
 
 async function parseJsonlBuffer(buffer: Buffer, target: TraceEvent[]): Promise<void> {

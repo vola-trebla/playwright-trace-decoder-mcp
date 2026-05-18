@@ -50,6 +50,24 @@ export interface TraceScreenshot {
   data: Buffer;
 }
 
+export interface TraceSession {
+  session_id: string;
+  retry_index: number;
+  status: "passed" | "failed";
+  duration_ms: number;
+  action_count: number;
+}
+
+export interface StrictTraceMetadata {
+  trace_format_version: string;
+  file_extension: string;
+  session_count: number;
+  retry_attempt_index: number;
+  har_resolution_status: "embed" | "attach" | "omit";
+  embedded_payloads_flag: boolean;
+  test_sessions_array: TraceSession[];
+}
+
 export interface ParsedTrace {
   metadata: TraceMetadata;
   events: TraceEvent[];
