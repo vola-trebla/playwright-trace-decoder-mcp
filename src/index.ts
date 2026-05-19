@@ -474,13 +474,17 @@ server.registerTool(
   },
   async ({ trace_path, screenshot_index }) => {
     try {
-      const screenshots = extractScreenshots(await resolveTracePath(trace_path));
+      const resolved = await resolveTracePath(trace_path);
+      const screenshots = extractScreenshots(resolved);
 
       if (screenshots.length === 0) {
         return {
           content: [{ type: "text", text: "No screenshots found in this trace." }],
         };
       }
+
+      const trace = await parseTraceZip(resolved);
+      const failed = trace.actions.find((a) => a.error);
 
       let target = screenshots[screenshots.length - 1];
 
@@ -497,20 +501,11 @@ server.registerTool(
           };
         }
         target = pick;
-      } else {
-        const trace = await parseTraceZip(await resolveTracePath(trace_path));
-        const failed = trace.actions.find((a) => a.error);
-        if (failed) {
-          // Pick the latest screenshot taken at or before the failure
-          const before = screenshots.filter((s) => s.timestamp <= failed.startTime);
-          if (before.length > 0) target = before[before.length - 1];
-        }
+      } else if (failed) {
+        // Pick the latest screenshot taken at or before the failure
+        const before = screenshots.filter((s) => s.timestamp <= failed.startTime);
+        if (before.length > 0) target = before[before.length - 1];
       }
-
-      const failed =
-        screenshot_index === undefined
-          ? (await parseTraceZip(trace_path)).actions.find((a) => a.error)
-          : undefined;
 
       return {
         content: [
