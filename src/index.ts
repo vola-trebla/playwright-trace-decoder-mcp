@@ -20,7 +20,7 @@ import { generateErrorSignature, compareTraces } from "./cross-trace.js";
 
 const server = new McpServer({
   name: "playwright-trace-decoder",
-  version: "0.2.1",
+  version: "0.2.2",
 });
 
 const traceInputSchema = z.object({
