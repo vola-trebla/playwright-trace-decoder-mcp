@@ -234,15 +234,15 @@ function stripAnsi(s: string): string {
 function normalizeActionType(before: TraceEvent): string {
   if (before.apiName) return String(before.apiName);
 
-  // If apiName is missing, try to reconstruct from class/method or title
+  // If apiName is missing, try to use title first (usually has the most descriptive name)
   const { class: className, method, title } = before as Record<string, any>;
-
-  if (className && method) {
-    return `${className}.${method}`;
-  }
 
   if (title) {
     return String(title);
+  }
+
+  if (className && method) {
+    return `${className}.${method}`;
   }
 
   // Fallback to callId but keep it recognizable
