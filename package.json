@@ -41,6 +41,12 @@
     "ci",
     "debugging"
   ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "server.json"
+  ],
   "author": "vola-trebla",
   "license": "MIT",
   "type": "module",
