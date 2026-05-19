@@ -231,6 +231,24 @@ function stripAnsi(s: string): string {
   return s.replace(ANSI_RE, "");
 }
 
+function normalizeActionType(before: TraceEvent): string {
+  if (before.apiName) return String(before.apiName);
+
+  // If apiName is missing, try to reconstruct from class/method or title
+  const { class: className, method, title } = before as Record<string, any>;
+
+  if (className && method) {
+    return `${className}.${method}`;
+  }
+
+  if (title) {
+    return String(title);
+  }
+
+  // Fallback to callId but keep it recognizable
+  return String(before.callId ? `pw:api@${before.callId}` : "unknown");
+}
+
 function extractActions(events: TraceEvent[]): TraceAction[] {
   const afterMap = new Map<string, TraceEvent>();
   for (const e of events) {
@@ -246,7 +264,7 @@ function extractActions(events: TraceEvent[]): TraceAction[] {
       const params = (before.params ?? {}) as Record<string, unknown>;
       const error = after?.error as Record<string, unknown> | undefined;
       return {
-        type: String(before.apiName ?? before.callId ?? "unknown"),
+        type: normalizeActionType(before),
         startTime: Number(before.startTime ?? 0),
         endTime: Number(after?.endTime ?? 0),
         locator: params.selector
