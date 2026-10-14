@@ -349,19 +349,55 @@ function extractConsole(events: TraceEvent[]): ConsoleMessage[] {
     }
   }
 
-  return events
-    .filter((e) => e.type === "event" && e.method === "console")
-    .map((e) => {
+  const messages: ConsoleMessage[] = [];
+  for (const e of events) {
+    // Playwright >= 1.49 writes console messages as first-class trace entries.
+    if (e.type === "console") {
+      const record = e as unknown as Record<string, unknown>;
+      messages.push({
+        type: normalizeConsoleType(record.messageType),
+        text: record.text ? String(record.text) : "",
+        time: Number(e.time ?? 0),
+      });
+      continue;
+    }
+    // Uncaught exceptions never reach console.error, but Playwright records them as pageError events.
+    // Surface them as console errors so get_console_errors / causal chain tools see them.
+    if (e.type === "event" && e.method === "pageError") {
+      const params = e.params as Record<string, unknown> | undefined;
+      const outer = params?.error as Record<string, unknown> | undefined;
+      const err = (outer?.error ?? outer) as Record<string, unknown> | undefined;
+      const stack = err?.stack ? String(err.stack) : "";
+      const message = err?.message ? String(err.message) : "";
+      const text = stack.includes(message) ? stack : [message, stack].filter(Boolean).join("\n");
+      messages.push({ type: "error", text: `Uncaught ${text}`, time: Number(e.time ?? 0) });
+      continue;
+    }
+    // Older traces reference a ConsoleMessage object by guid.
+    if (e.type === "event" && e.method === "console") {
       const params = e.params as Record<string, unknown>;
       const msgRef = params.message as Record<string, unknown> | undefined;
       const msgObj = objectMap.get(String(msgRef?.guid ?? ""));
       const init = msgObj?.initializer as Record<string, unknown> | undefined;
-      return {
-        type: (init?.type as ConsoleMessage["type"]) ?? "log",
+      messages.push({
+        type: normalizeConsoleType(init?.type),
         text: init?.text ? String(init.text) : "",
         time: Number(e.time ?? 0),
-      };
-    });
+      });
+    }
+  }
+  return messages;
+}
+
+function normalizeConsoleType(raw: unknown): ConsoleMessage["type"] {
+  switch (raw) {
+    case "error":
+    case "warning":
+    case "info":
+      return raw;
+    default:
+      return "log";
+  }
 }
 
 export async function extractCriticalFrames(

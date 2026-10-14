@@ -541,6 +541,23 @@ export function mapLocatorToSource(trace: ParsedTrace, actionIndex?: number): Lo
     }
   }
 
+  // Newer Playwright traces (expect/API steps) carry the test-runner stack on the
+  // action's own "before" event instead of linking to a separate runner event.
+  if (stack.length === 0 && Array.isArray(beforeEvent?.stack)) {
+    stack = (beforeEvent.stack as unknown[]).map((frame) => {
+      const f = frame as Record<string, unknown>;
+      return {
+        file: String(f.file ?? ""),
+        line: Number(f.line ?? 0),
+        column: Number(f.column ?? 0),
+        function: f.function ? String(f.function) : undefined,
+      };
+    });
+    if (!stepTitle && beforeEvent?.title) {
+      stepTitle = String(beforeEvent.title);
+    }
+  }
+
   return {
     action_type: action.type,
     locator: action.locator,
